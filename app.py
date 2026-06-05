@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import altair as alt
 
 from fraud_detection import (
     ML_AVAILABLE,
@@ -24,11 +25,17 @@ except ImportError:
 
 SAMPLE_CSV = Path(__file__).parent / "data" / "sample_transactions.csv"
 
-COLOR_ALERT = "#B91C1C"
-COLOR_ALERT_BG = "#FEF2F2"
-COLOR_TEXT = "#374151"
-COLOR_MUTED = "#6B7280"
-COLOR_HEADING = "#111827"
+# Premium Minimalist Theme Colors (Linear/Vercel inspired)
+COLOR_ALERT = "#ef4444"
+COLOR_TEXT = "#ededed"
+COLOR_MUTED = "#a1a1aa"
+COLOR_HEADING = "#ffffff"
+COLOR_BORDER = "#27272a"
+COLOR_CARD_BG = "#09090b"
+
+
+def _heading(text: str, icon: str, level: int = 2) -> None:
+    st.markdown(f"{'#' * level} :material/{icon}: {text}")
 
 
 def _inject_styles() -> None:
@@ -36,45 +43,53 @@ def _inject_styles() -> None:
         f"""
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&display=swap');
 
             html, body, [class*="css"] {{
-                font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             }}
 
             h1, h2, h3 {{
-                font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+                font-family: 'Inter', sans-serif;
                 font-weight: 600;
                 color: {COLOR_HEADING};
-                letter-spacing: -0.02em;
+                letter-spacing: -0.03em;
             }}
 
             .section-caption {{
                 color: {COLOR_MUTED};
                 font-size: 0.9rem;
-                margin-bottom: 1rem;
+                margin-bottom: 2rem;
+                font-weight: 400;
+                letter-spacing: -0.01em;
             }}
 
             .kpi-card {{
-                background: #FFFFFF;
-                border: 1px solid #E5E7EB;
-                border-radius: 8px;
-                padding: 0.85rem 1rem;
+                background: {COLOR_CARD_BG};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 6px;
+                padding: 1.5rem;
+                transition: border-color 0.15s ease;
+            }}
+            .kpi-card:hover {{
+                border-color: #3f3f46;
             }}
 
             .kpi-label {{
                 color: {COLOR_MUTED};
-                font-size: 0.8rem;
+                font-size: 0.75rem;
                 font-weight: 500;
                 text-transform: uppercase;
-                letter-spacing: 0.04em;
+                letter-spacing: 0.06em;
             }}
 
             .kpi-value {{
                 color: {COLOR_HEADING};
-                font-size: 1.75rem;
+                font-size: 2rem;
                 font-weight: 600;
                 line-height: 1.2;
-                margin-top: 0.25rem;
+                margin-top: 0.5rem;
+                letter-spacing: -0.02em;
             }}
 
             .kpi-value-alert {{
@@ -83,26 +98,30 @@ def _inject_styles() -> None:
 
             .kpi-sub {{
                 color: {COLOR_MUTED};
-                font-size: 0.78rem;
-                margin-top: 0.35rem;
+                font-size: 0.8rem;
+                margin-top: 0.5rem;
+                font-weight: 400;
             }}
 
             .kpi-sub-alert {{
                 color: {COLOR_ALERT};
             }}
 
-            div[data-testid="stSidebar"] {{
-                background-color: #F9FAFB;
-            }}
-
-            div[data-testid="stSidebar"] .stMarkdown {{
-                color: {COLOR_TEXT};
-            }}
-
             .ml-formula {{
                 color: {COLOR_MUTED};
+                font-family: 'JetBrains Mono', 'Menlo', monospace;
                 font-size: 0.85rem;
-                margin-bottom: 0.75rem;
+                padding: 1.2rem;
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 6px;
+                background: {COLOR_CARD_BG};
+                margin-bottom: 1.5rem;
+                text-align: left;
+            }}
+            
+            hr {{
+                border-color: {COLOR_BORDER};
+                margin: 3rem 0;
             }}
         </style>
         """,
@@ -135,6 +154,7 @@ def _build_results_df(transactions: list[dict], results: list[dict]) -> pd.DataF
         suspicious = res.get("is_suspicious", False)
         rows.append({
             "transaction_id": tid,
+            "timestamp": tx.get("timestamp"),
             "user_id": tx.get("user_id"),
             "amount": tx.get("amount"),
             "country": tx.get("country"),
@@ -144,6 +164,8 @@ def _build_results_df(transactions: list[dict], results: list[dict]) -> pd.DataF
         })
     df = pd.DataFrame(rows)
     if not df.empty:
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
         df = df.sort_values("fraud_score", ascending=False)
     return df
 
@@ -153,16 +175,12 @@ def _style_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
         is_suspect = row.get("statut") == "Suspect"
         styles = []
         for col in df.columns:
-            if is_suspect and col in ("statut", "fraud_score"):
-                styles.append(
-                    f"color: {COLOR_ALERT}; font-weight: 600; background-color: {COLOR_ALERT_BG}"
-                )
-            elif is_suspect:
-                styles.append(f"color: {COLOR_TEXT}; background-color: {COLOR_ALERT_BG}")
+            if is_suspect:
+                styles.append(f"color: {COLOR_ALERT}; background-color: transparent;")
             elif col == "fraud_score":
-                styles.append(f"color: {COLOR_MUTED}; background-color: #FFFFFF")
+                styles.append(f"color: {COLOR_HEADING}; background-color: transparent;")
             else:
-                styles.append(f"color: {COLOR_TEXT}; background-color: #FFFFFF")
+                styles.append(f"color: {COLOR_TEXT}; background-color: transparent;")
         return styles
 
     fmt = {"fraud_score": "{:.2f}"}
@@ -212,32 +230,93 @@ def _style_ml_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
         is_suspect = row.get("statut") == "Suspect"
         styles = []
         for col in df.columns:
-            if is_suspect and col in ("statut", "score_final", "score_ml"):
-                styles.append(
-                    f"color: {COLOR_ALERT}; font-weight: 600; background-color: {COLOR_ALERT_BG}"
-                )
-            elif is_suspect:
-                styles.append(f"color: {COLOR_TEXT}; background-color: {COLOR_ALERT_BG}")
+            if is_suspect:
+                styles.append(f"color: {COLOR_ALERT}; background-color: transparent;")
             else:
-                styles.append(f"color: {COLOR_TEXT}; background-color: #FFFFFF")
+                styles.append(f"color: {COLOR_TEXT}; background-color: transparent;")
         return styles
 
     return df.style.apply(_row_style, axis=1)
 
 
-def _render_ml_panel(transactions: list[dict]) -> None:
+def _render_ml_panel(transactions: list[dict], df_results: pd.DataFrame) -> None:
     st.divider()
-    st.subheader("Apport machine learning")
-    ml_status = "actif" if ML_AVAILABLE else "indisponible (règles seules)"
+    _heading("Intelligence Artificielle", "psychology")
+    
+    ml_status = "Actif (Isolation Forest)" if ML_AVAILABLE else "Désactivé (Règles seules)"
     st.markdown(
-        f'<p class="ml-formula">Score final = 0.6 × règles + 0.4 × ML — module {ml_status}</p>',
+        f'<div class="ml-formula">Modèle Hybride: Score_Final = σ (0.6 × Z-Score_Règles + 0.4 × ML_Anomaly_Score)<br>Statut: {ml_status}</div>',
         unsafe_allow_html=True,
     )
+    
     ml_df = _build_ml_breakdown_df(transactions)
     if ml_df.empty:
-        st.info("Aucune donnée à analyser.")
+        st.info("Aucune donnée disponible.")
         return
-    st.dataframe(_style_ml_table(ml_df), use_container_width=True, hide_index=True)
+
+    tab1, tab2 = st.tabs(["Données", "Déviation"])
+    
+    with tab1:
+        st.dataframe(_style_ml_table(ml_df), use_container_width=True, hide_index=True)
+        
+    with tab2:
+        if not ml_df.empty and ML_AVAILABLE:
+            chart_data = ml_df.melt(id_vars=["transaction_id", "statut"], value_vars=["score_regles", "score_ml"], var_name="Type de Score", value_name="Score")
+            scatter_chart = alt.Chart(chart_data).mark_circle(size=60, opacity=0.8).encode(
+                x=alt.X("transaction_id:N", axis=alt.Axis(domain=False, ticks=False, grid=False, labels=False, title=None)),
+                y=alt.Y("Score:Q", axis=alt.Axis(domain=False, ticks=False, grid=True, gridColor="#27272a", labelColor=COLOR_MUTED, title=None)),
+                color=alt.Color("Type de Score:N", scale=alt.Scale(domain=["score_regles", "score_ml"], range=["#52525b", "#ffffff"]), legend=None),
+                tooltip=["transaction_id", "Type de Score", "Score", "statut"]
+            ).properties(height=300).configure_view(strokeOpacity=0).interactive()
+            st.altair_chart(scatter_chart, use_container_width=True)
+        elif not ML_AVAILABLE:
+            st.info("Le modèle ML est inactif.")
+
+def _render_charts(df: pd.DataFrame) -> None:
+    st.divider()
+    _heading("Analytique", "analytics")
+    
+    if df.empty:
+        return
+        
+    col1, col2 = st.columns(2)
+    
+    axis_config = alt.Axis(domain=False, ticks=False, grid=False, labelColor=COLOR_MUTED, title=None)
+    
+    with col1:
+        st.markdown('<p style="color: #a1a1aa; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem;">Tendance du Risque (Temps Réel)</p>', unsafe_allow_html=True)
+        if "timestamp" in df.columns and not df["timestamp"].isnull().all():
+            trend_chart = alt.Chart(df).mark_area(
+                line={'color': COLOR_ALERT},
+                color=alt.Gradient(
+                    gradient='linear',
+                    stops=[alt.GradientStop(color=COLOR_ALERT, offset=0),
+                           alt.GradientStop(color='rgba(239, 68, 68, 0)', offset=1)],
+                    x1=1, x2=1, y1=1, y2=0
+                ),
+                interpolate='monotone',
+                opacity=0.8
+            ).encode(
+                x=alt.X("timestamp:T", axis=alt.Axis(domain=False, ticks=False, grid=True, gridColor="#27272a", labelColor=COLOR_MUTED, title=None)),
+                y=alt.Y("sum(fraud_score):Q", axis=axis_config),
+                tooltip=[alt.Tooltip("timestamp:T", format="%Y-%m-%d %H:%M"), alt.Tooltip("sum(fraud_score):Q", format=".2f", title="Score Cumulé")]
+            ).properties(height=250).configure_view(strokeOpacity=0).interactive()
+            st.altair_chart(trend_chart, use_container_width=True)
+        else:
+            st.write("Données temporelles non disponibles pour tracer la tendance.")
+        
+    with col2:
+        st.markdown('<p style="color: #a1a1aa; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem;">Exposition Géographique</p>', unsafe_allow_html=True)
+        suspects_df = df[df["statut"] == "Suspect"]
+        if not suspects_df.empty:
+            country_chart = alt.Chart(suspects_df).mark_bar(color=COLOR_ALERT, opacity=0.9, cornerRadiusTopRight=2, cornerRadiusBottomRight=2).encode(
+                x=alt.X("count()", axis=axis_config),
+                y=alt.Y("country:N", sort="-x", axis=axis_config),
+                tooltip=["country", "count()"]
+            ).properties(height=250).configure_view(strokeOpacity=0).interactive()
+            st.altair_chart(country_chart, use_container_width=True)
+        else:
+            st.write("Aucune anomalie géographique.")
 
 
 def render_interface(transactions: list[dict], results: list[dict]) -> None:
@@ -252,9 +331,9 @@ def render_interface(transactions: list[dict], results: list[dict]) -> None:
     threshold = 10.0
     risk_high = risk_rate > threshold
 
-    st.subheader("Vue d'ensemble")
+    _heading("Synthèse", "dashboard")
     st.markdown(
-        '<p class="section-caption">Indicateurs clés après analyse du lot de transactions.</p>',
+        '<p class="section-caption">Monitoring des flux et détection d\'anomalies.</p>',
         unsafe_allow_html=True,
     )
 
@@ -263,34 +342,36 @@ def render_interface(transactions: list[dict], results: list[dict]) -> None:
         _kpi_card("Transactions", str(total))
     with col2:
         _kpi_card(
-            "Alertes",
+            "Anomalies",
             str(alerts),
-            sub=f"{alerts} transaction(s) signalée(s)" if alerts else "Aucune alerte",
+            sub=f"{alerts} transaction(s) suspecte(s)" if alerts else "Aucune",
             alert=alerts > 0,
         )
     with col3:
         _kpi_card(
-            "Taux de risque",
+            "Exposition",
             f"{risk_rate:.1f} %",
-            sub=f"{risk_rate - threshold:+.1f} pts vs seuil {threshold:.0f} %",
+            sub=f"{risk_rate - threshold:+.1f} pts (seuil {threshold:.0f} %)",
             alert=risk_high,
         )
     with col4:
-        _kpi_card("Score moyen", f"{avg_score:.2f}")
-
-    st.divider()
+        _kpi_card("Score Moyen", f"{avg_score:.2f}")
 
     df = _build_results_df(transactions, results)
-    st.subheader("Transactions")
-    alerts_only = st.checkbox("Afficher uniquement les alertes", value=False)
+    
+    _render_charts(df)
+
+    st.divider()
+    _heading("Journal", "receipt_long")
+    alerts_only = st.checkbox("N'afficher que les alertes", value=False)
     display_df = df[df["statut"] == "Suspect"] if alerts_only and not df.empty else df
     _render_table(display_df)
 
     st.divider()
-    st.subheader("Clients signalés")
+    _heading("Profils", "group")
 
     if not results:
-        st.info("Aucun résultat d'analyse disponible.")
+        st.info("Aucun résultat d'analyse.")
     else:
         tx_by_id = {tx.get("transaction_id"): tx for tx in transactions}
         users_with_alerts: dict[str, int] = {}
@@ -302,13 +383,13 @@ def render_interface(transactions: list[dict], results: list[dict]) -> None:
                     users_with_alerts[uid] = users_with_alerts.get(uid, 0) + 1
 
         if not users_with_alerts:
-            st.info("Aucun client avec alerte.")
+            st.write("Aucun profil utilisateur suspect détecté.")
         else:
             results_by_id = {r.get("transaction_id"): r for r in results}
 
             for user_id in sorted(users_with_alerts):
                 n_alerts = users_with_alerts[user_id]
-                label = f"{user_id} — {n_alerts} alerte(s)"
+                label = f"{user_id} - {n_alerts} anomalie(s)"
                 with st.expander(label):
                     user_rows = []
                     for tx in transactions:
@@ -333,49 +414,55 @@ def render_interface(transactions: list[dict], results: list[dict]) -> None:
                         user_df = user_df.sort_values("_ts_sort").drop(columns=["_ts_sort"])
                     _render_table(user_df)
 
-    _render_ml_panel(transactions)
+    _render_ml_panel(transactions, df)
 
 
 def main() -> None:
     st.set_page_config(
-        page_title="Détection de fraude — INTELO2026",
+        page_title="Sentinel | INTELO2026",
         layout="wide",
+        initial_sidebar_state="expanded"
     )
     _inject_styles()
 
-    st.title("Détection de fraude financière")
-    st.caption("Hackathon INTELO2026 — analyse des transactions suspectes")
+    _heading("Sentinel", "shield", level=1)
+    st.caption("Moteur d'inférence et détection comportementale")
 
     with st.sidebar:
-        st.header("Données")
-        use_sample = st.toggle("Utiliser le fichier d'exemple", value=True)
+        st.markdown("### :material/cloud_upload: Ingestion")
+        st.markdown('<p style="color: #a1a1aa; font-size: 0.8rem; margin-bottom: 2rem;">Endpoints supportés: REST, GraphQL, Kafka, S3 (CSV, Parquet, JSON)</p>', unsafe_allow_html=True)
+        use_sample = st.toggle("Mock Stream (Dev)", value=True)
         transactions: list[dict] = []
 
         if use_sample:
             transactions = load_transactions(str(SAMPLE_CSV))
-            st.caption(f"{len(transactions)} transactions chargées")
+            st.write(f"{len(transactions)} événements ingérés.")
         else:
-            uploaded = st.file_uploader("Importer un CSV", type=["csv"])
+            uploaded = st.file_uploader("Upload Batch", type=["csv", "json", "parquet"])
             if uploaded:
-                tmp = Path(".streamlit_upload.csv")
-                tmp.write_bytes(uploaded.getvalue())
-                transactions = load_transactions(str(tmp))
-                tmp.unlink(missing_ok=True)
-                st.caption(f"{len(transactions)} transactions importées")
+                try:
+                    tmp = Path(".streamlit_upload.csv")
+                    tmp.write_bytes(uploaded.getvalue())
+                    transactions = load_transactions(str(tmp))
+                    tmp.unlink(missing_ok=True)
+                    st.write(f"{len(transactions)} événements ingérés.")
+                except Exception:
+                    st.error("Erreur de parsing (schema non conforme).")
 
     if not transactions:
-        st.info("Chargez des transactions puis lancez l'analyse.")
+        st.info("En attente de flux d'événements.")
         return
 
-    if st.button("Analyser", type="primary"):
-        try:
-            results = detect_fraud(transactions)
-        except NotImplementedError:
-            st.error("Implémentez d'abord `detect_fraud` dans `fraud_detection.py`.")
-            return
-        except Exception as exc:
-            st.error(f"Erreur : {exc}")
-            return
+    if st.button("Initialiser inférence", type="primary", icon=":material/play_arrow:"):
+        with st.spinner("Exécution du pipeline analytique..."):
+            try:
+                results = detect_fraud(transactions)
+            except NotImplementedError:
+                st.error("Règles d'inférence non implémentées (`fraud_detection.py`).")
+                return
+            except Exception as exc:
+                st.error(f"Échec de l'inférence : {exc}")
+                return
 
         render_interface(transactions, results)
 
