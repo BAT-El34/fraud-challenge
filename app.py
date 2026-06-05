@@ -24,6 +24,9 @@ except ImportError:
         return {}
 
 SAMPLE_CSV = Path(__file__).parent / "data" / "sample_transactions.csv"
+TABLE_INITIAL_ROWS = 10
+TABLE_ROW_STEP = 10
+TABLE_SCROLL_HEIGHT = 420
 
 # Premium Minimalist Theme Colors (Linear/Vercel inspired)
 COLOR_ALERT = "#ef4444"
@@ -170,6 +173,14 @@ def _build_results_df(transactions: list[dict], results: list[dict]) -> pd.DataF
     return df
 
 
+def _prepare_display_df(df: pd.DataFrame) -> pd.DataFrame:
+    display = df.copy()
+    if "timestamp" in display.columns:
+        ts = pd.to_datetime(display["timestamp"], errors="coerce", utc=True)
+        display["timestamp"] = ts.dt.strftime("%Y-%m-%d %H:%M").fillna("")
+    return display
+
+
 def _style_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
     def _row_style(row: pd.Series) -> list[str]:
         is_suspect = row.get("statut") == "Suspect"
@@ -190,11 +201,36 @@ def _style_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
     return df.style.apply(_row_style, axis=1).format(fmt)
 
 
-def _render_table(df: pd.DataFrame) -> None:
+def _render_paginated_table(df: pd.DataFrame, table_key: str) -> None:
     if df.empty:
         st.info("Aucune transaction à afficher.")
         return
-    st.dataframe(_style_table(df), use_container_width=True, hide_index=True)
+
+    limit_key = f"{table_key}_row_limit"
+    if limit_key not in st.session_state:
+        st.session_state[limit_key] = TABLE_INITIAL_ROWS
+
+    total = len(df)
+    visible_count = min(st.session_state[limit_key], total)
+    visible_df = _prepare_display_df(df.head(visible_count))
+
+    st.caption(f"{visible_count} / {total} lignes affichées")
+    st.dataframe(
+        _style_table(visible_df),
+        use_container_width=True,
+        hide_index=True,
+        height=TABLE_SCROLL_HEIGHT,
+    )
+
+    if visible_count < total:
+        remaining = total - visible_count
+        step = min(TABLE_ROW_STEP, remaining)
+        if st.button(
+            f"Charger {step} ligne(s) de plus",
+            key=f"{table_key}_load_more",
+        ):
+            st.session_state[limit_key] = visible_count + step
+            st.rerun()
 
 
 def _build_ml_breakdown_df(transactions: list[dict]) -> pd.DataFrame:
@@ -363,9 +399,16 @@ def render_interface(transactions: list[dict], results: list[dict]) -> None:
 
     st.divider()
     _heading("Journal", "receipt_long")
-    alerts_only = st.checkbox("N'afficher que les alertes", value=False)
-    display_df = df[df["statut"] == "Suspect"] if alerts_only and not df.empty else df
-    _render_table(display_df)
+    alerts_only = st.checkbox(
+        "N'afficher que les alertes",
+        value=False,
+        key="journal_alerts_only",
+    )
+    journal_df = df[df["statut"] == "Suspect"].copy() if alerts_only else df
+    if alerts_only and journal_df.empty:
+        st.info("Aucune alerte à afficher.")
+    else:
+        _render_paginated_table(journal_df, table_key="journal")
 
     st.divider()
     _heading("Profils", "group")
@@ -412,7 +455,7 @@ def render_interface(transactions: list[dict], results: list[dict]) -> None:
                             user_df["timestamp"], errors="coerce", utc=True
                         )
                         user_df = user_df.sort_values("_ts_sort").drop(columns=["_ts_sort"])
-                    _render_table(user_df)
+                    _render_paginated_table(user_df, table_key=f"user_{user_id}")
 
     _render_ml_panel(transactions, df)
 
@@ -464,7 +507,18 @@ def main() -> None:
                 st.error(f"Échec de l'inférence : {exc}")
                 return
 
-        render_interface(transactions, results)
+        st.session_state["analysis_transactions"] = transactions
+        st.session_state["analysis_results"] = results
+        st.session_state["journal_row_limit"] = TABLE_INITIAL_ROWS
+        for key in list(st.session_state.keys()):
+            if key.startswith("user_") and key.endswith("_row_limit"):
+                del st.session_state[key]
+
+    if "analysis_results" in st.session_state and "analysis_transactions" in st.session_state:
+        render_interface(
+            st.session_state["analysis_transactions"],
+            st.session_state["analysis_results"],
+        )
 
 
 if __name__ == "__main__":
