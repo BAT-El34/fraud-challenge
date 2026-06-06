@@ -4,9 +4,9 @@ Interface Streamlit - Hackathon INTELO2026
 
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
-import altair as alt
 
 from fraud_detection import (
     ML_AVAILABLE,
@@ -26,126 +26,55 @@ except ImportError:
 SAMPLE_CSV = Path(__file__).parent / "data" / "sample_transactions.csv"
 TABLE_INITIAL_ROWS = 10
 TABLE_ROW_STEP = 10
-TABLE_SCROLL_HEIGHT = 420
+TABLE_SCROLL_HEIGHT = 380
+RISK_THRESHOLD = 10.0
 
-# Premium Minimalist Theme Colors (Linear/Vercel inspired)
-COLOR_ALERT = "#ef4444"
-COLOR_TEXT = "#ededed"
-COLOR_MUTED = "#a1a1aa"
-COLOR_HEADING = "#ffffff"
-COLOR_BORDER = "#27272a"
-COLOR_CARD_BG = "#09090b"
-
-
-def _heading(text: str, icon: str, level: int = 2) -> None:
-    st.markdown(f"{'#' * level} :material/{icon}: {text}")
+COLOR_ALERT = "#f87171"
+COLOR_MUTED = "#71717a"
+COLOR_ACCENT = "#fafafa"
+COLOR_GRID = "#27272a"
 
 
 def _inject_styles() -> None:
     st.markdown(
-        f"""
+        """
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-            @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&display=swap');
-
-            html, body, [class*="css"] {{
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            }}
-
-            h1, h2, h3 {{
-                font-family: 'Inter', sans-serif;
-                font-weight: 600;
-                color: {COLOR_HEADING};
+            html, body, [class*="css"] {
+                font-family: 'Inter', system-ui, sans-serif;
+            }
+            h1, h2, h3, h4 {
                 letter-spacing: -0.03em;
-            }}
-
-            .section-caption {{
-                color: {COLOR_MUTED};
-                font-size: 0.9rem;
-                margin-bottom: 2rem;
-                font-weight: 400;
-                letter-spacing: -0.01em;
-            }}
-
-            .kpi-card {{
-                background: {COLOR_CARD_BG};
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
-                padding: 1.5rem;
-                transition: border-color 0.15s ease;
-            }}
-            .kpi-card:hover {{
-                border-color: #3f3f46;
-            }}
-
-            .kpi-label {{
-                color: {COLOR_MUTED};
-                font-size: 0.75rem;
-                font-weight: 500;
-                text-transform: uppercase;
-                letter-spacing: 0.06em;
-            }}
-
-            .kpi-value {{
-                color: {COLOR_HEADING};
-                font-size: 2rem;
                 font-weight: 600;
-                line-height: 1.2;
-                margin-top: 0.5rem;
-                letter-spacing: -0.02em;
-            }}
-
-            .kpi-value-alert {{
-                color: {COLOR_ALERT};
-            }}
-
-            .kpi-sub {{
-                color: {COLOR_MUTED};
-                font-size: 0.8rem;
-                margin-top: 0.5rem;
-                font-weight: 400;
-            }}
-
-            .kpi-sub-alert {{
-                color: {COLOR_ALERT};
-            }}
-
-            .ml-formula {{
-                color: {COLOR_MUTED};
-                font-family: 'JetBrains Mono', 'Menlo', monospace;
-                font-size: 0.85rem;
-                padding: 1.2rem;
-                border: 1px solid {COLOR_BORDER};
-                border-radius: 6px;
-                background: {COLOR_CARD_BG};
-                margin-bottom: 1.5rem;
-                text-align: left;
-            }}
-            
-            hr {{
-                border-color: {COLOR_BORDER};
-                margin: 3rem 0;
-            }}
+            }
+            .app-badge {
+                display: inline-block;
+                font-size: 0.7rem;
+                font-weight: 500;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                color: #a1a1aa;
+                border: 1px solid #3f3f46;
+                border-radius: 999px;
+                padding: 0.2rem 0.65rem;
+                margin-bottom: 0.75rem;
+            }
+            div[data-testid="stMetric"] {
+                background: #18181b;
+                border: 1px solid #27272a;
+                border-radius: 10px;
+                padding: 0.85rem 1rem;
+            }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-def _kpi_card(label: str, value: str, sub: str = "", alert: bool = False) -> None:
-    value_class = "kpi-value kpi-value-alert" if alert else "kpi-value"
-    sub_class = "kpi-sub kpi-sub-alert" if alert else "kpi-sub"
-    sub_html = f'<div class="{sub_class}">{sub}</div>' if sub else ""
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">{label}</div>
-            <div class="{value_class}">{value}</div>
-            {sub_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+def _section(title: str, icon: str, caption: str = "") -> None:
+    st.markdown(f"### :material/{icon}: {title}")
+    if caption:
+        st.caption(caption)
 
 
 def _build_results_df(transactions: list[dict], results: list[dict]) -> pd.DataFrame:
@@ -167,43 +96,54 @@ def _build_results_df(transactions: list[dict], results: list[dict]) -> pd.DataF
         })
     df = pd.DataFrame(rows)
     if not df.empty:
-        if "timestamp" in df.columns:
-            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+        df["_ts"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
         df = df.sort_values("fraud_score", ascending=False)
     return df
 
 
-def _prepare_display_df(df: pd.DataFrame) -> pd.DataFrame:
-    display = df.copy()
-    if "timestamp" in display.columns:
-        ts = pd.to_datetime(display["timestamp"], errors="coerce", utc=True)
-        display["timestamp"] = ts.dt.strftime("%Y-%m-%d %H:%M").fillna("")
-    return display
+def _format_display_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "_ts" in out.columns:
+        out["timestamp"] = out["_ts"].dt.strftime("%Y-%m-%d %H:%M").fillna("")
+        out = out.drop(columns=["_ts"], errors="ignore")
+    elif "timestamp" in out.columns:
+        out["timestamp"] = pd.to_datetime(out["timestamp"], errors="coerce", utc=True).dt.strftime(
+            "%Y-%m-%d %H:%M"
+        ).fillna("")
+    return out
 
 
-def _style_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
-    def _row_style(row: pd.Series) -> list[str]:
-        is_suspect = row.get("statut") == "Suspect"
-        styles = []
-        for col in df.columns:
-            if is_suspect:
-                styles.append(f"color: {COLOR_ALERT}; background-color: transparent;")
-            elif col == "fraud_score":
-                styles.append(f"color: {COLOR_HEADING}; background-color: transparent;")
-            else:
-                styles.append(f"color: {COLOR_TEXT}; background-color: transparent;")
-        return styles
+def _table_columns(include_timestamp: bool = False) -> dict:
+    cols = {
+        "transaction_id": st.column_config.TextColumn("ID", width="small"),
+        "user_id": st.column_config.TextColumn("Client", width="small"),
+        "amount": st.column_config.NumberColumn("Montant", format="%.2f"),
+        "country": st.column_config.TextColumn("Pays", width="small"),
+        "fraud_score": st.column_config.ProgressColumn(
+            "Score",
+            format="%.2f",
+            min_value=0.0,
+            max_value=1.0,
+        ),
+        "statut": st.column_config.TextColumn("Statut", width="small"),
+        "motif": st.column_config.TextColumn("Motif", width="large"),
+    }
+    if include_timestamp:
+        cols = {
+            "transaction_id": cols["transaction_id"],
+            "timestamp": st.column_config.TextColumn("Date", width="medium"),
+            **{k: v for k, v in cols.items() if k != "transaction_id"},
+        }
+    return cols
 
-    fmt = {"fraud_score": "{:.2f}"}
-    if "amount" in df.columns:
-        fmt["amount"] = "{:.2f}"
 
-    return df.style.apply(_row_style, axis=1).format(fmt)
-
-
-def _render_paginated_table(df: pd.DataFrame, table_key: str) -> None:
+def _render_paginated_table(
+    df: pd.DataFrame,
+    table_key: str,
+    include_timestamp: bool = False,
+) -> None:
     if df.empty:
-        st.info("Aucune transaction à afficher.")
+        st.info("Aucune transaction a afficher.")
         return
 
     limit_key = f"{table_key}_row_limit"
@@ -212,11 +152,17 @@ def _render_paginated_table(df: pd.DataFrame, table_key: str) -> None:
 
     total = len(df)
     visible_count = min(st.session_state[limit_key], total)
-    visible_df = _prepare_display_df(df.head(visible_count))
+    visible_df = _format_display_df(df.head(visible_count))
 
-    st.caption(f"{visible_count} / {total} lignes affichées")
+    col_a, col_b = st.columns([3, 1])
+    with col_a:
+        st.caption(f"{visible_count} sur {total} lignes")
+    with col_b:
+        st.progress(visible_count / total if total else 0.0)
+
     st.dataframe(
-        _style_table(visible_df),
+        visible_df,
+        column_config=_table_columns(include_timestamp),
         use_container_width=True,
         hide_index=True,
         height=TABLE_SCROLL_HEIGHT,
@@ -226,8 +172,9 @@ def _render_paginated_table(df: pd.DataFrame, table_key: str) -> None:
         remaining = total - visible_count
         step = min(TABLE_ROW_STEP, remaining)
         if st.button(
-            f"Charger {step} ligne(s) de plus",
+            f"Afficher {step} lignes supplementaires",
             key=f"{table_key}_load_more",
+            use_container_width=True,
         ):
             st.session_state[limit_key] = visible_count + step
             st.rerun()
@@ -261,98 +208,116 @@ def _build_ml_breakdown_df(transactions: list[dict]) -> pd.DataFrame:
     return df
 
 
-def _style_ml_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
-    def _row_style(row: pd.Series) -> list[str]:
-        is_suspect = row.get("statut") == "Suspect"
-        styles = []
-        for col in df.columns:
-            if is_suspect:
-                styles.append(f"color: {COLOR_ALERT}; background-color: transparent;")
-            else:
-                styles.append(f"color: {COLOR_TEXT}; background-color: transparent;")
-        return styles
-
-    return df.style.apply(_row_style, axis=1)
-
-
-def _render_ml_panel(transactions: list[dict], df_results: pd.DataFrame) -> None:
-    st.divider()
-    _heading("Intelligence Artificielle", "psychology")
-    
-    ml_status = "Actif (Isolation Forest)" if ML_AVAILABLE else "Désactivé (Règles seules)"
-    st.markdown(
-        f'<div class="ml-formula">Modèle Hybride: Score_Final = σ (0.6 × Z-Score_Règles + 0.4 × ML_Anomaly_Score)<br>Statut: {ml_status}</div>',
-        unsafe_allow_html=True,
-    )
-    
-    ml_df = _build_ml_breakdown_df(transactions)
-    if ml_df.empty:
-        st.info("Aucune donnée disponible.")
-        return
-
-    tab1, tab2 = st.tabs(["Données", "Déviation"])
-    
-    with tab1:
-        st.dataframe(_style_ml_table(ml_df), use_container_width=True, hide_index=True)
-        
-    with tab2:
-        if not ml_df.empty and ML_AVAILABLE:
-            chart_data = ml_df.melt(id_vars=["transaction_id", "statut"], value_vars=["score_regles", "score_ml"], var_name="Type de Score", value_name="Score")
-            scatter_chart = alt.Chart(chart_data).mark_circle(size=60, opacity=0.8).encode(
-                x=alt.X("transaction_id:N", axis=alt.Axis(domain=False, ticks=False, grid=False, labels=False, title=None)),
-                y=alt.Y("Score:Q", axis=alt.Axis(domain=False, ticks=False, grid=True, gridColor="#27272a", labelColor=COLOR_MUTED, title=None)),
-                color=alt.Color("Type de Score:N", scale=alt.Scale(domain=["score_regles", "score_ml"], range=["#52525b", "#ffffff"]), legend=None),
-                tooltip=["transaction_id", "Type de Score", "Score", "statut"]
-            ).properties(height=300).configure_view(strokeOpacity=0).interactive()
-            st.altair_chart(scatter_chart, use_container_width=True)
-        elif not ML_AVAILABLE:
-            st.info("Le modèle ML est inactif.")
-
 def _render_charts(df: pd.DataFrame) -> None:
-    st.divider()
-    _heading("Analytique", "analytics")
-    
     if df.empty:
         return
-        
+
+    axis = alt.Axis(
+        domain=False,
+        ticks=False,
+        gridColor=COLOR_GRID,
+        labelColor=COLOR_MUTED,
+        title=None,
+    )
     col1, col2 = st.columns(2)
-    
-    axis_config = alt.Axis(domain=False, ticks=False, grid=False, labelColor=COLOR_MUTED, title=None)
-    
+
     with col1:
-        st.markdown('<p style="color: #a1a1aa; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem;">Tendance du Risque (Temps Réel)</p>', unsafe_allow_html=True)
-        if "timestamp" in df.columns and not df["timestamp"].isnull().all():
-            trend_chart = alt.Chart(df).mark_area(
-                line={'color': COLOR_ALERT},
-                color=alt.Gradient(
-                    gradient='linear',
-                    stops=[alt.GradientStop(color=COLOR_ALERT, offset=0),
-                           alt.GradientStop(color='rgba(239, 68, 68, 0)', offset=1)],
-                    x1=1, x2=1, y1=1, y2=0
-                ),
-                interpolate='monotone',
-                opacity=0.8
-            ).encode(
-                x=alt.X("timestamp:T", axis=alt.Axis(domain=False, ticks=False, grid=True, gridColor="#27272a", labelColor=COLOR_MUTED, title=None)),
-                y=alt.Y("sum(fraud_score):Q", axis=axis_config),
-                tooltip=[alt.Tooltip("timestamp:T", format="%Y-%m-%d %H:%M"), alt.Tooltip("sum(fraud_score):Q", format=".2f", title="Score Cumulé")]
-            ).properties(height=250).configure_view(strokeOpacity=0).interactive()
-            st.altair_chart(trend_chart, use_container_width=True)
+        if "_ts" in df.columns and df["_ts"].notna().any():
+            chart_df = df.dropna(subset=["_ts"])
+            chart = (
+                alt.Chart(chart_df)
+                .mark_line(color=COLOR_ACCENT, strokeWidth=2)
+                .encode(
+                    x=alt.X("_ts:T", axis=axis),
+                    y=alt.Y("fraud_score:Q", axis=axis),
+                    tooltip=[
+                        alt.Tooltip("_ts:T", title="Date", format="%Y-%m-%d %H:%M"),
+                        alt.Tooltip("fraud_score:Q", format=".2f", title="Score"),
+                    ],
+                )
+                .properties(height=220)
+                .configure_view(strokeOpacity=0)
+            )
+            st.altair_chart(chart, use_container_width=True)
         else:
-            st.write("Données temporelles non disponibles pour tracer la tendance.")
-        
+            st.caption("Serie temporelle indisponible.")
+
     with col2:
-        st.markdown('<p style="color: #a1a1aa; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem;">Exposition Géographique</p>', unsafe_allow_html=True)
-        suspects_df = df[df["statut"] == "Suspect"]
-        if not suspects_df.empty:
-            country_chart = alt.Chart(suspects_df).mark_bar(color=COLOR_ALERT, opacity=0.9, cornerRadiusTopRight=2, cornerRadiusBottomRight=2).encode(
-                x=alt.X("count()", axis=axis_config),
-                y=alt.Y("country:N", sort="-x", axis=axis_config),
-                tooltip=["country", "count()"]
-            ).properties(height=250).configure_view(strokeOpacity=0).interactive()
-            st.altair_chart(country_chart, use_container_width=True)
+        suspects = df[df["statut"] == "Suspect"]
+        if not suspects.empty:
+            chart = (
+                alt.Chart(suspects)
+                .mark_bar(color=COLOR_ALERT, cornerRadiusEnd=4)
+                .encode(
+                    x=alt.X("count()", axis=axis),
+                    y=alt.Y("country:N", sort="-x", axis=axis),
+                    tooltip=["country", "count()"],
+                )
+                .properties(height=220)
+                .configure_view(strokeOpacity=0)
+            )
+            st.altair_chart(chart, use_container_width=True)
         else:
-            st.write("Aucune anomalie géographique.")
+            st.caption("Aucune alerte geographique.")
+
+
+def _render_ml_panel(transactions: list[dict]) -> None:
+    ml_df = _build_ml_breakdown_df(transactions)
+    if ml_df.empty:
+        st.info("Donnees ML indisponibles.")
+        return
+
+    status = "Isolation Forest actif" if ML_AVAILABLE else "Regles seules"
+    st.caption(f"Formule hybride : 0.6 x regles + 0.4 x ML | {status}")
+
+    tab_data, tab_chart = st.tabs(["Scores", "Comparaison"])
+
+    with tab_data:
+        st.dataframe(
+            ml_df,
+            column_config={
+                "transaction_id": st.column_config.TextColumn("ID"),
+                "score_regles": st.column_config.NumberColumn("Regles", format="%.2f"),
+                "score_ml": st.column_config.NumberColumn("ML", format="%.2f"),
+                "score_final": st.column_config.ProgressColumn(
+                    "Final", format="%.2f", min_value=0.0, max_value=1.0
+                ),
+                "statut": st.column_config.TextColumn("Statut"),
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab_chart:
+        if ML_AVAILABLE:
+            melted = ml_df.melt(
+                id_vars=["transaction_id"],
+                value_vars=["score_regles", "score_ml"],
+                var_name="source",
+                value_name="score",
+            )
+            chart = (
+                alt.Chart(melted)
+                .mark_circle(size=70, opacity=0.85)
+                .encode(
+                    x=alt.X("transaction_id:N", title=None),
+                    y=alt.Y("score:Q", scale=alt.Scale(domain=[0, 1]), title=None),
+                    color=alt.Color(
+                        "source:N",
+                        scale=alt.Scale(
+                            domain=["score_regles", "score_ml"],
+                            range=[COLOR_MUTED, COLOR_ACCENT],
+                        ),
+                        legend=alt.Legend(title="Source"),
+                    ),
+                    tooltip=["transaction_id", "source", "score"],
+                )
+                .properties(height=280)
+                .configure_view(strokeOpacity=0)
+            )
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.info("Module ML non charge.")
 
 
 def render_interface(transactions: list[dict], results: list[dict]) -> None:
@@ -360,161 +325,163 @@ def render_interface(transactions: list[dict], results: list[dict]) -> None:
     alerts = sum(1 for r in results if r.get("is_suspicious"))
     risk_rate = (alerts / total * 100) if total > 0 else 0.0
     avg_score = (
-        sum(r.get("fraud_score", 0.0) for r in results) / len(results)
-        if results
-        else 0.0
-    )
-    threshold = 10.0
-    risk_high = risk_rate > threshold
-
-    _heading("Synthèse", "dashboard")
-    st.markdown(
-        '<p class="section-caption">Monitoring des flux et détection d\'anomalies.</p>',
-        unsafe_allow_html=True,
+        sum(r.get("fraud_score", 0.0) for r in results) / len(results) if results else 0.0
     )
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        _kpi_card("Transactions", str(total))
-    with col2:
-        _kpi_card(
-            "Anomalies",
-            str(alerts),
-            sub=f"{alerts} transaction(s) suspecte(s)" if alerts else "Aucune",
-            alert=alerts > 0,
-        )
-    with col3:
-        _kpi_card(
-            "Exposition",
-            f"{risk_rate:.1f} %",
-            sub=f"{risk_rate - threshold:+.1f} pts (seuil {threshold:.0f} %)",
-            alert=risk_high,
-        )
-    with col4:
-        _kpi_card("Score Moyen", f"{avg_score:.2f}")
+    with st.container(border=True):
+        _section("Vue d'ensemble", "dashboard", "Indicateurs apres analyse du lot.")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("Transactions", total)
+        with c2:
+            st.metric(
+                "Alertes",
+                alerts,
+                delta=f"{alerts} detectee(s)" if alerts else "Aucune",
+                delta_color="inverse" if alerts else "off",
+            )
+        with c3:
+            st.metric(
+                "Taux de risque",
+                f"{risk_rate:.1f} %",
+                delta=f"{risk_rate - RISK_THRESHOLD:+.1f} pts vs {RISK_THRESHOLD:.0f} %",
+                delta_color="inverse" if risk_rate > RISK_THRESHOLD else "off",
+            )
+        with c4:
+            st.metric("Score moyen", f"{avg_score:.2f}")
 
     df = _build_results_df(transactions, results)
-    
-    _render_charts(df)
 
-    st.divider()
-    _heading("Journal", "receipt_long")
-    alerts_only = st.checkbox(
-        "N'afficher que les alertes",
-        value=False,
-        key="journal_alerts_only",
-    )
-    journal_df = df[df["statut"] == "Suspect"].copy() if alerts_only else df
-    if alerts_only and journal_df.empty:
-        st.info("Aucune alerte à afficher.")
-    else:
-        _render_paginated_table(journal_df, table_key="journal")
+    with st.container(border=True):
+        _section("Analytique", "analytics")
+        _render_charts(df)
 
-    st.divider()
-    _heading("Profils", "group")
-
-    if not results:
-        st.info("Aucun résultat d'analyse.")
-    else:
-        tx_by_id = {tx.get("transaction_id"): tx for tx in transactions}
-        users_with_alerts: dict[str, int] = {}
-        for r in results:
-            if r.get("is_suspicious"):
-                tx = tx_by_id.get(r.get("transaction_id"), {})
-                uid = tx.get("user_id")
-                if uid:
-                    users_with_alerts[uid] = users_with_alerts.get(uid, 0) + 1
-
-        if not users_with_alerts:
-            st.write("Aucun profil utilisateur suspect détecté.")
+    with st.container(border=True):
+        _section("Journal des transactions", "receipt_long")
+        alerts_only = st.toggle(
+            "Afficher uniquement les alertes",
+            value=False,
+            key="journal_alerts_only",
+        )
+        journal_df = df[df["statut"] == "Suspect"].copy() if alerts_only else df
+        if alerts_only and journal_df.empty:
+            st.success("Aucune alerte sur ce lot.")
         else:
-            results_by_id = {r.get("transaction_id"): r for r in results}
+            _render_paginated_table(journal_df, table_key="journal")
 
-            for user_id in sorted(users_with_alerts):
-                n_alerts = users_with_alerts[user_id]
-                label = f"{user_id} - {n_alerts} anomalie(s)"
-                with st.expander(label):
-                    user_rows = []
-                    for tx in transactions:
-                        if tx.get("user_id") != user_id:
-                            continue
-                        tid = tx.get("transaction_id")
-                        res = results_by_id.get(tid, {})
-                        user_rows.append({
-                            "transaction_id": tid,
-                            "timestamp": tx.get("timestamp"),
-                            "amount": tx.get("amount"),
-                            "country": tx.get("country"),
-                            "fraud_score": float(res.get("fraud_score", 0.0)),
-                            "statut": "Suspect" if res.get("is_suspicious") else "Conforme",
-                            "motif": res.get("reason", ""),
-                        })
-                    user_df = pd.DataFrame(user_rows)
-                    if not user_df.empty:
-                        user_df["_ts_sort"] = pd.to_datetime(
-                            user_df["timestamp"], errors="coerce", utc=True
+    with st.container(border=True):
+        _section("Clients signales", "group")
+        if not results:
+            st.info("Aucun resultat.")
+        else:
+            tx_by_id = {tx.get("transaction_id"): tx for tx in transactions}
+            users_with_alerts: dict[str, int] = {}
+            for r in results:
+                if r.get("is_suspicious"):
+                    tx = tx_by_id.get(r.get("transaction_id"), {})
+                    uid = tx.get("user_id")
+                    if uid:
+                        users_with_alerts[uid] = users_with_alerts.get(uid, 0) + 1
+
+            if not users_with_alerts:
+                st.success("Aucun client avec alerte.")
+            else:
+                results_by_id = {r.get("transaction_id"): r for r in results}
+                for user_id in sorted(users_with_alerts):
+                    n = users_with_alerts[user_id]
+                    with st.expander(f"{user_id} | {n} alerte(s)"):
+                        user_rows = []
+                        for tx in transactions:
+                            if tx.get("user_id") != user_id:
+                                continue
+                            tid = tx.get("transaction_id")
+                            res = results_by_id.get(tid, {})
+                            user_rows.append({
+                                "transaction_id": tid,
+                                "timestamp": tx.get("timestamp"),
+                                "amount": tx.get("amount"),
+                                "country": tx.get("country"),
+                                "fraud_score": float(res.get("fraud_score", 0.0)),
+                                "statut": "Suspect" if res.get("is_suspicious") else "Conforme",
+                                "motif": res.get("reason", ""),
+                            })
+                        user_df = pd.DataFrame(user_rows)
+                        if not user_df.empty:
+                            user_df["_ts"] = pd.to_datetime(
+                                user_df["timestamp"], errors="coerce", utc=True
+                            )
+                            user_df = user_df.sort_values("_ts")
+                        _render_paginated_table(
+                            user_df,
+                            table_key=f"user_{user_id}",
+                            include_timestamp=True,
                         )
-                        user_df = user_df.sort_values("_ts_sort").drop(columns=["_ts_sort"])
-                    _render_paginated_table(user_df, table_key=f"user_{user_id}")
 
-    _render_ml_panel(transactions, df)
+    with st.container(border=True):
+        _section("Machine learning", "psychology")
+        _render_ml_panel(transactions)
 
 
 def main() -> None:
     st.set_page_config(
-        page_title="Sentinel | INTELO2026",
+        page_title="Detection de fraude | INTELO2026",
         layout="wide",
-        initial_sidebar_state="expanded"
+        initial_sidebar_state="expanded",
     )
     _inject_styles()
 
-    _heading("Sentinel", "shield", level=1)
-    st.caption("Moteur d'inférence et détection comportementale")
+    st.markdown('<span class="app-badge">INTELO2026</span>', unsafe_allow_html=True)
+    st.markdown("# :material/shield: Detection de fraude")
+    st.caption("Analyse des transactions financieres | regles metier + Isolation Forest")
 
     with st.sidebar:
-        st.markdown("### :material/cloud_upload: Ingestion")
-        st.markdown('<p style="color: #a1a1aa; font-size: 0.8rem; margin-bottom: 2rem;">Endpoints supportés: REST, GraphQL, Kafka, S3 (CSV, Parquet, JSON)</p>', unsafe_allow_html=True)
-        use_sample = st.toggle("Mock Stream (Dev)", value=True)
+        st.markdown("### :material/cloud_upload: Donnees")
+        use_sample = st.toggle("Fichier d'exemple", value=True)
         transactions: list[dict] = []
 
         if use_sample:
             transactions = load_transactions(str(SAMPLE_CSV))
-            st.write(f"{len(transactions)} événements ingérés.")
+            st.caption(f"{len(transactions)} transactions chargees")
         else:
-            uploaded = st.file_uploader("Upload Batch", type=["csv", "json", "parquet"])
+            uploaded = st.file_uploader("Importer CSV", type=["csv"])
             if uploaded:
-                try:
-                    tmp = Path(".streamlit_upload.csv")
-                    tmp.write_bytes(uploaded.getvalue())
-                    transactions = load_transactions(str(tmp))
-                    tmp.unlink(missing_ok=True)
-                    st.write(f"{len(transactions)} événements ingérés.")
-                except Exception:
-                    st.error("Erreur de parsing (schema non conforme).")
+                tmp = Path(".streamlit_upload.csv")
+                tmp.write_bytes(uploaded.getvalue())
+                transactions = load_transactions(str(tmp))
+                tmp.unlink(missing_ok=True)
+                st.caption(f"{len(transactions)} transactions importees")
+
+        st.divider()
+        st.caption("Module ML : actif" if ML_AVAILABLE else "Module ML : absent")
 
     if not transactions:
-        st.info("En attente de flux d'événements.")
+        st.info("Chargez des transactions dans la barre laterale.")
         return
 
-    if st.button("Initialiser inférence", type="primary", icon=":material/play_arrow:"):
-        with st.spinner("Exécution du pipeline analytique..."):
+    if st.button(
+        "Lancer l'analyse",
+        type="primary",
+        icon=":material/play_arrow:",
+        use_container_width=True,
+    ):
+        with st.spinner("Analyse en cours..."):
             try:
                 results = detect_fraud(transactions)
             except NotImplementedError:
-                st.error("Règles d'inférence non implémentées (`fraud_detection.py`).")
+                st.error("Implementez detect_fraud dans fraud_detection.py.")
                 return
             except Exception as exc:
-                st.error(f"Échec de l'inférence : {exc}")
+                st.error(f"Erreur : {exc}")
                 return
 
         st.session_state["analysis_transactions"] = transactions
         st.session_state["analysis_results"] = results
         st.session_state["journal_row_limit"] = TABLE_INITIAL_ROWS
         for key in list(st.session_state.keys()):
-            if key.startswith("user_") and key.endswith("_row_limit"):
+            if key.endswith("_row_limit") and key != "journal_row_limit":
                 del st.session_state[key]
 
-    if "analysis_results" in st.session_state and "analysis_transactions" in st.session_state:
+    if "analysis_results" in st.session_state:
         render_interface(
             st.session_state["analysis_transactions"],
             st.session_state["analysis_results"],
